@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OLED 128×64 (SH1106) – Tọa độ & chính giữa · Leanbot</title>
+<style>
+  :root{
+    --bg1:#0d1330; --bg2:#1b2a5e; --panel:rgba(255,255,255,.06); --line:rgba(255,255,255,.12);
+    --txt:#eef3ff; --mut:#a9b6dc;
+    --c63:#ffa726; --c64:#ff4f9a; --r31:#5ee07a; --r32:#c084fc; --lit:#dff8ff; --hov:#ffe14d;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:"Segoe UI",Roboto,"Noto Sans","Helvetica Neue",Arial,sans-serif;
+    color:var(--txt);
+    background:radial-gradient(1200px 700px at 30% 20%, #26408f 0%, var(--bg2) 35%, var(--bg1) 100%);
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  header{display:flex;align-items:baseline;gap:14px;padding:10px 18px 4px}
+  header h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
+  header .sub{color:var(--mut);font-size:14px}
+  main{flex:1;display:grid;grid-template-columns:1fr 350px;gap:10px;padding:6px 12px 10px;min-height:0}
+  #stage{position:relative;perspective:1700px;perspective-origin:50% 40%;overflow:hidden;border-radius:16px;
+         background:radial-gradient(70% 60% at 50% 55%, rgba(120,170,255,.10), rgba(0,0,0,0) 70%);}
+  #board3d{position:absolute;left:50%;top:50%;transform-style:preserve-3d;
+           transition:transform 1.1s cubic-bezier(.45,.05,.2,1);will-change:transform}
+  #board3d.notrans{transition:none}
+  #board3d canvas{position:absolute;left:0;top:0;width:100%;height:100%;display:block;border-radius:3.2%/5%}
+  .slab{position:absolute;inset:0;border-radius:3.2%/5%;background:#0f2a66;}
+  .mk{position:absolute;width:0;height:0}
+  #shadow{position:absolute;left:50%;top:50%;border-radius:50%;background:rgba(0,0,10,.45);filter:blur(28px);
+          transform:translate(-50%,-50%);pointer-events:none;transition:all 1.1s}
+  #tip{position:fixed;pointer-events:none;background:rgba(10,14,35,.92);border:1px solid var(--hov);color:#fff;
+       font:600 14px/1.25 ui-monospace,Consolas,monospace;padding:5px 8px;border-radius:8px;display:none;z-index:9;
+       box-shadow:0 4px 14px rgba(0,0,0,.4);white-space:nowrap}
+  #tip small{display:block;font:500 12px "Segoe UI",Roboto,sans-serif;color:var(--mut)}
+  aside{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:12px 14px;overflow:auto;
+        display:flex;flex-direction:column;gap:12px;min-height:0}
+  aside h2{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--mut);margin:0 0 6px}
+  .readout{display:flex;align-items:center;gap:10px}
+  .readout .big{font:700 26px ui-monospace,Consolas,monospace;color:var(--hov);min-width:150px}
+  .readout .info{font-size:12.5px;color:var(--mut);line-height:1.35}
+  #mini{width:100%;image-rendering:pixelated;border-radius:6px;border:2px solid #2e56b8;background:#080b1c;cursor:crosshair;display:block}
+  .row{display:flex;align-items:center;gap:8px;font-size:13px;margin:4px 0}
+  .row label{width:74px;color:var(--mut)}
+  .row input[type=range]{flex:1;accent-color:#7aa7ff}
+  .row output{width:44px;text-align:right;font-family:ui-monospace,monospace}
+  .btns{display:flex;flex-wrap:wrap;gap:6px}
+  button{font:600 13px "Segoe UI",Roboto,sans-serif;color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);
+         border-radius:999px;padding:6px 11px;cursor:pointer;transition:background .2s,border-color .2s}
+  button:hover{background:rgba(255,255,255,.16)}
+  button.main{background:linear-gradient(135deg,#3f7cff,#7a4dff);border:none;padding:8px 16px;font-size:14px}
+  button.tg{display:inline-flex;align-items:center;gap:6px}
+  button.tg .sw{width:11px;height:11px;border-radius:3px;display:inline-block;opacity:.35}
+  button.tg.on{border-color:rgba(255,255,255,.55);background:rgba(255,255,255,.16)}
+  button.tg.on .sw{opacity:1}
+  .mid{font-size:13.5px;line-height:1.5}
+  .mid b.k{font-family:ui-monospace,Consolas,monospace}
+  .chip{display:inline-block;padding:0 6px;border-radius:5px;color:#111;font-weight:700;font-family:ui-monospace,monospace}
+  .code{font:12.5px/1.5 ui-monospace,Consolas,monospace;background:rgba(0,0,0,.28);border-radius:10px;padding:8px 10px;white-space:pre}
+  .code .off{opacity:.35;text-decoration:line-through}
+  .code .cm{color:#8fa0c8}
+  footer{position:absolute;right:16px;bottom:10px;font-size:12px;color:var(--mut);pointer-events:none}
+  @media (max-width:1050px){
+    body{overflow:auto} main{grid-template-columns:1fr;grid-template-rows:62vh auto}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>OLED 128×64 (SH1106) trên Leanbot</h1>
+  <span class="sub">X: 0…127 (128 mức) · Y: 0…63 (64 mức) · gốc (0,0) ở góc trên-trái</span>
+</header>
+<main>
+  <div id="stage">
+    <div id="shadow"></div>
+    <div id="board3d">
+      <div class="slab" style="transform:translateZ(-18px);background:#071a45"></div>
+      <div class="slab" style="transform:translateZ(-15px)"></div>
+      <div class="slab" style="transform:translateZ(-12px)"></div>
+      <div class="slab" style="transform:translateZ(-9px)"></div>
+      <div class="slab" style="transform:translateZ(-6px)"></div>
+      <div class="slab" style="transform:translateZ(-3px);background:#14367f"></div>
+      <canvas id="cBoard"></canvas>
+      <canvas id="cHover"></canvas>
+      <i class="mk" style="left:0;top:0"></i><i class="mk" style="left:100%;top:0"></i>
+      <i class="mk" style="left:100%;top:100%"></i><i class="mk" style="left:0;top:100%"></i>
+    </div>
+    <footer>Lý Viết Khang · Leanbot</footer>
+  </div>
+
+  <aside>
+    <section>
+      <h2>Rê chuột lên màn hình</h2>
+      <div class="readout"><div class="big" id="rdXY">(–, –)</div><div class="info" id="rdInfo">trên bảng 3D hoặc bản đồ phẳng</div></div>
+      <canvas id="mini" width="384" height="192" title="Bản đồ phẳng 128×64"></canvas>
+    </section>
+
+    <section>
+      <h2>Góc nhìn</h2>
+      <div class="btns" style="margin-bottom:6px">
+        <button class="main" id="btnFlat">Phẳng / Nghiêng</button>
+        <button id="btnReset">Đặt lại</button>
+      </div>
+      <div class="row"><label>Nghiêng X</label><input type="range" id="rx" min="-10" max="70" value="38"><output id="orx">38°</output></div>
+      <div class="row"><label>Xoay Y</label><input type="range" id="ry" min="-50" max="50" value="-20"><output id="ory">-20°</output></div>
+      <div class="row"><label>Xoay Z</label><input type="range" id="rz" min="-30" max="30" value="6"><output id="orz">6°</output></div>
+    </section>
+
+    <section>
+      <h2>Hiển thị</h2>
+      <div class="btns">
+        <button class="tg on" data-k="cols"><span class="sw" style="background:linear-gradient(90deg,var(--c63) 50%,var(--c64) 50%)"></span>Cột 63 | 64</button>
+        <button class="tg on" data-k="rows"><span class="sw" style="background:linear-gradient(180deg,var(--r31) 50%,var(--r32) 50%)"></span>Hàng 31 | 32</button>
+        <button class="tg on" data-k="halves"><span class="sw" style="background:#7fd3ff"></span>Hai nửa</button>
+        <button class="tg on" data-k="grid"><span class="sw" style="background:#5a6aa0"></span>Lưới</button>
+        <button class="tg" data-k="circle"><span class="sw" style="background:var(--lit)"></span>drawCircle</button>
+        <button class="tg" data-k="disc"><span class="sw" style="background:var(--lit)"></span>drawDisc</button>
+        <button class="tg" data-k="frame"><span class="sw" style="background:var(--lit)"></span>drawFrame</button>
+      </div>
+    </section>
+
+    <section class="mid">
+      <h2>Chính giữa ở đâu?</h2>
+      <div><b>Ngang:</b> 128 là số chẵn → <u>không có</u> 1 cột giữa duy nhất, mà có <b>2 cột giữa</b>:
+        <span class="chip" style="background:var(--c63)">63</span> và <span class="chip" style="background:var(--c64)">64</span></div>
+      <div>• Trung bình <b class="k">(0+127)/2 = 63,5</b> → nằm đúng ranh giới 63 | 64</div>
+      <div>• Chia nguyên <b class="k">127/2 = 63</b> (số bé hơn)</div>
+      <div>• <b class="k">128/2 = 64</b> (số lớn hơn)</div>
+      <div>• Nửa trái <b class="k">0…63</b> = 64 cột · nửa phải <b class="k">64…127</b> = 64 cột</div>
+      <div style="margin-top:6px"><b>Dọc:</b> 2 hàng giữa <span class="chip" style="background:var(--r31)">31</span> và <span class="chip" style="background:var(--r32)">32</span></div>
+      <div>• <b class="k">(0+63)/2 = 31,5</b> · <b class="k">63/2 = 31</b> (bé hơn) · <b class="k">64/2 = 32</b> (lớn hơn)</div>
+      <div>• Nửa trên <b class="k">0…31</b> = 32 hàng · nửa dưới <b class="k">32…63</b> = 32 hàng</div>
+    </section>
+
+    <section>
+      <h2>Code U8g2 (thuật toán gốc, đúng từng điểm ảnh)</h2>
+      <div class="code" id="code"></div>
+    </section>
+  </aside>
+</main>
+<div id="tip"></div>
+
+<script>
+"use strict";
+/* ============================================================
+   1) U8g2 port 1:1 (csrc/u8g2_circle.c, csrc/u8g2_box.c), option = U8G2_DRAW_ALL
+   ============================================================ */
+const W = 128, H = 64;
+const BIT_CIRCLE = 1, BIT_DISC = 2, BIT_FRAME = 4;
+const fb = new Uint8Array(W * H);                     // frame buffer: bit flags per pixel
+
+function drawPixel(x, y, bit){ if (x >= 0 && x < W && y >= 0 && y < H) fb[y * W + x] |= bit; }
+function drawVLine(x, y, len, bit){ for (let i = 0; i < len; i++) drawPixel(x, y + i, bit); }
+function drawHLine(x, y, len, bit){ for (let i = 0; i < len; i++) drawPixel(x + i, y, bit); }
+
+function circleSection(x, y, x0, y0, bit){
+  drawPixel(x0 + x, y0 - y, bit); drawPixel(x0 + y, y0 - x, bit);   // upper right
+  drawPixel(x0 - x, y0 - y, bit); drawPixel(x0 - y, y0 - x, bit);   // upper left
+  drawPixel(x0 + x, y0 + y, bit); drawPixel(x0 + y, y0 + x, bit);   // lower right
+  drawPixel(x0 - x, y0 + y, bit); drawPixel(x0 - y, y0 + x, bit);   // lower left
+}
+function discSection(x, y, x0, y0, bit){
+  drawVLine(x0 + x, y0 - y, y + 1, bit); drawVLine(x0 + y, y0 - x, x + 1, bit);  // upper right
+  drawVLine(x0 - x, y0 - y, y + 1, bit); drawVLine(x0 - y, y0 - x, x + 1, bit);  // upper left
+  drawVLine(x0 + x, y0, y + 1, bit);     drawVLine(x0 + y, y0, x + 1, bit);      // lower right
+  drawVLine(x0 - x, y0, y + 1, bit);     drawVLine(x0 - y, y0, x + 1, bit);      // lower left
+}
+function midpoint(x0, y0, rad, section, bit){        // u8g2_draw_circle / u8g2_draw_disc
+  let f = 1 - rad, ddF_x = 1, ddF_y = -2 * rad, x = 0, y = rad;
+  section(x, y, x0, y0, bit);
+  while (x < y){
+    if (f >= 0){ y--; ddF_y += 2; f += ddF_y; }
+    x++; ddF_x += 2; f += ddF_x;
+    section(x, y, x0, y0, bit);
+  }
+}
+function u8g2_DrawCircle(x0, y0, rad){ midpoint(x0, y0, rad, circleSection, BIT_CIRCLE); }
+function u8g2_DrawDisc(x0, y0, rad){ midpoint(x0, y0, rad, discSection, BIT_DISC); }
+function u8g2_DrawFrame(x, y, w, h){                  // u8g2_box.c
+  drawHLine(x, y, w, BIT_FRAME);
+  if (h >= 2){
+    h -= 2; y++;
+    if (h > 0){ drawVLine(x, y, h, BIT_FRAME); drawVLine(x + w - 1, y, h, BIT_FRAME); y += h; }
+    drawHLine(x, y, w, BIT_FRAME);
+  }
+}
+u8g2_DrawCircle(32, 32, 25);   // tron rong
+u8g2_DrawDisc(95, 32, 25);     // tron dac
+u8g2_DrawFrame(0, 0, 128, 64); // khung (buoc 2)
+
+function countBit(bit){ let n = 0; for (const v of fb) if (v & bit) n++; return n; }
+const COUNT = { circle: countBit(BIT_CIRCLE), disc: countBit(BIT_DISC), frame: countBit(BIT_FRAME) };
+window.OLED = {
+  COUNT, fb,
+  rows(bit){ const out = []; for (let y = 0; y < H; y++){ let s = ""; for (let x = 0; x < W; x++) s += (fb[y*W+x] & bit) ? "1" : "0"; out.push(s); } return out; }
+};
+
+/* ============================================================
+   2) State
+   ============================================================ */
+const S = { cols:true, rows:true, halves:true, grid:true, circle:false, disc:false, frame:false };
+let flat = false, hover = null;   // hover = {x,y}
+
+/* ============================================================
+   3) Board drawing (canvas, units before scale K)
+   ============================================================ */
+const CELL = 8, GW = W * CELL, GH = H * CELL;
+const ML = 200, MR = 200, MT = 175, MB = 215;
+const BW = ML + GW + MR, BH = MT + GH + MB;
+const GX = ML, GY = MT;
+const K = 2;                                     // supersampling for sharp text when tilted
+const FONT = '"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif';
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const COL = { c63:css('--c63'), c64:css('--c64'), r31:css('--r31'), r32:css('--r32'), lit:css('--lit'), hov:css('--hov') };
+
+const cB = document.getElementById('cBoard'), cH = document.getElementById('cHover');
+[cB, cH].forEach(c => { c.width = BW * K; c.height = BH * K; });
+const gB = cB.getContext('2d'), gH = cH.getContext('2d');
+gB.setTransform(K,0,0,K,0,0); gH.setTransform(K,0,0,K,0,0);
+
+function rrect(g, x, y, w, h, r){ g.beginPath(); g.moveTo(x+r,y); g.arcTo(x+w,y,x+w,y+h,r); g.arcTo(x+w,y+h,x,y+h,r); g.arcTo(x,y+h,x,y,r); g.arcTo(x,y,x+w,y,r); g.closePath(); }
+function arrow(g, x1, y1, x2, y2, color, w){
+  g.strokeStyle = color; g.fillStyle = color; g.lineWidth = w;
+  g.beginPath(); g.moveTo(x1,y1); g.lineTo(x2,y2); g.stroke();
+  const a = Math.atan2(y2-y1, x2-x1), L = 18;
+  g.beginPath(); g.moveTo(x2 + Math.cos(a)*4, y2 + Math.sin(a)*4);
+  g.lineTo(x2 - L*Math.cos(a-0.4), y2 - L*Math.sin(a-0.4));
+  g.lineTo(x2 - L*Math.cos(a+0.4), y2 - L*Math.sin(a+0.4)); g.closePath(); g.fill();
+}
+function label(g, text, cx, cy, opt = {}){
+  const size = opt.size || 20;
+  g.font = `${opt.weight || 700} ${size}px ${FONT}`;
+  const tw = g.measureText(text).width, pad = opt.pad ?? 8, h = size + 10;
+  let x = cx - tw/2 - pad; if (opt.align === 'left') x = cx; if (opt.align === 'right') x = cx - tw - 2*pad;
+  if (opt.bg !== null){ g.fillStyle = opt.bg || '#fff'; rrect(g, x, cy - h/2, tw + 2*pad, h, 6); g.fill();
+    if (opt.border){ g.strokeStyle = opt.border; g.lineWidth = 2; g.stroke(); } }
+  g.fillStyle = opt.color || '#111'; g.textBaseline = 'middle'; g.textAlign = 'left';
+  g.fillText(text, x + pad, cy + 1);
+  return { x, y: cy - h/2, w: tw + 2*pad, h };
+}
+function brace(g, x1, y1, x2, y2, depth, color){   // curly brace from (x1,y1) to (x2,y2), bulging to the left of direction
+  const dx = x2-x1, dy = y2-y1, L = Math.hypot(dx,dy), ux = dx/L, uy = dy/L, nx = uy, ny = -ux;
+  const P = (t, d) => [x1 + ux*t + nx*d, y1 + uy*t + ny*d];
+  g.strokeStyle = color; g.lineWidth = 2.5; g.beginPath();
+  let p = P(0,0); g.moveTo(...p);
+  let c1 = P(0, depth*0.6), c2 = P(L*0.12, depth*0.5); p = P(L*0.16, depth*0.5); g.bezierCurveTo(...c1, ...c2, ...p);
+  p = P(L*0.42, depth*0.5); g.lineTo(...p);
+  c1 = P(L*0.48, depth*0.5); c2 = P(L*0.5, depth*0.7); p = P(L*0.5, depth); g.bezierCurveTo(...c1, ...c2, ...p);
+  c1 = P(L*0.5, depth*0.7); c2 = P(L*0.52, depth*0.5); p = P(L*0.58, depth*0.5); g.bezierCurveTo(...c1, ...c2, ...p);
+  p = P(L*0.84, depth*0.5); g.lineTo(...p);
+  c1 = P(L*0.88, depth*0.5); c2 = P(L, depth*0.6); p = P(L, 0); g.bezierCurveTo(...c1, ...c2, ...p);
+  g.stroke();
+}
+const cx = x => GX + x * CELL, cy = y => GY + y * CELL;   // left/top edge of pixel column/row
+
+function drawPixels(g, ox, oy, cs, gap, showGrid){
+  // base cells
+  g.fillStyle = '#060918'; g.fillRect(ox, oy, W*cs, H*cs);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+    const v = fb[y*W+x];
+    const lit = (S.circle && (v & BIT_CIRCLE)) || (S.disc && (v & BIT_DISC)) || (S.frame && (v & BIT_FRAME));
+    let col = lit ? COL.lit : '#141c44';
+    if (!lit && S.halves) col = x < 64 ? '#13234f' : '#1d1d48';
+    if (S.cols && (x === 63 || x === 64)) col = lit ? mix(COL.lit, x === 63 ? COL.c63 : COL.c64, .35) : mix(col, x === 63 ? COL.c63 : COL.c64, .62);
+    if (S.rows && (y === 31 || y === 32)) col = lit ? mix(col, y === 31 ? COL.r31 : COL.r32, .3) : mix(col, y === 31 ? COL.r31 : COL.r32, .55);
+    g.fillStyle = col;
+    const gp = showGrid ? gap : 0;
+    g.fillRect(ox + x*cs + gp/2, oy + y*cs + gp/2, cs - gp, cs - gp);
+  }
+}
+function hex2rgb(h){ h = h.replace('#',''); if (h.length === 3) h = h.split('').map(c=>c+c).join(''); return [0,2,4].map(i=>parseInt(h.substr(i,2),16)); }
+function mix(a, b, t){ const A = hex2rgb(a), B = hex2rgb(b); return '#' + A.map((v,i)=>Math.round(v+(B[i]-v)*t).toString(16).padStart(2,'0')).join(''); }
+
+function drawBoard(){
+  const g = gB;
+  g.clearRect(0, 0, BW, BH);
+  // PCB
+  const grd = g.createLinearGradient(0, 0, BW, BH); grd.addColorStop(0, '#2c62c9'); grd.addColorStop(1, '#1d469c');
+  rrect(g, 0, 0, BW, BH, 44); g.fillStyle = grd; g.fill();
+  g.strokeStyle = 'rgba(255,255,255,.18)'; g.lineWidth = 3; rrect(g, 6, 6, BW-12, BH-12, 40); g.stroke();
+  // mounting holes (like the slide: silver ring, red inside)
+  for (const [hx, hy] of [[58,58],[BW-58,58],[58,BH-58],[BW-58,BH-58]]){
+    g.fillStyle = '#d7dbe6'; g.beginPath(); g.arc(hx, hy, 32, 0, 7); g.fill();
+    g.fillStyle = '#b3262a'; g.beginPath(); g.arc(hx, hy, 23, 0, 7); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.25)'; g.beginPath(); g.arc(hx-7, hy-8, 7, 0, 7); g.fill();
+  }
+  // header VCC GND SCK SDA
+  const hx0 = GX + 175, hy = 40, step = 62;
+  ['VCC','GND','SCK','SDA'].forEach((t, i) => {
+    const px = hx0 + i*step;
+    g.fillStyle = '#c9a227'; g.fillRect(px-14, hy-14, 28, 28);
+    g.fillStyle = '#2a2a2a'; g.fillRect(px-7, hy-7, 14, 14);
+    g.fillStyle = '#fff'; g.font = `700 19px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(t, px, hy + 34);
+  });
+  g.font = `700 17px ${FONT}`; g.fillText('1', hx0 - 34, hy); g.fillText('4', hx0 + 3*step + 34, hy);
+  g.textAlign = 'left';
+  g.font = `600 18px ${FONT}`; g.fillStyle = 'rgba(255,255,255,.75)';
+  g.fillText('OLED 1.3" SH1106 · I2C 0x3C', GX + GW - 300, 42);
+
+  // glass
+  rrect(g, GX - 18, GY - 18, GW + 36, GH + 36, 10); g.fillStyle = '#050713'; g.fill();
+  g.strokeStyle = '#33405f'; g.lineWidth = 2; g.stroke();
+  drawPixels(g, GX, GY, CELL, 1.6, S.grid);
+  // halves tint boundaries
+  // dashed center lines
+  if (S.cols){
+    g.setLineDash([12, 8]); g.strokeStyle = '#ffffff'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(cx(64), GY - 22); g.lineTo(cx(64), GY + GH + 128); g.stroke(); g.setLineDash([]);
+  }
+  if (S.rows){
+    g.setLineDash([12, 8]); g.strokeStyle = '#ffffff'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(GX - 22, cy(32)); g.lineTo(GX + GW + 40, cy(32)); g.stroke(); g.setLineDash([]);
+  }
+
+  // axes (like the slide: red arrows from origin)
+  const red = '#ff3b3b';
+  arrow(g, GX - 48, GY - 52, GX + GW + 62, GY - 52, red, 5);
+  arrow(g, GX - 52, GY - 48, GX - 52, GY + GH + 62, red, 5);
+  label(g, 'X', GX + GW + 92, GY - 52, { size: 24 });
+  label(g, 'Y', GX - 52, GY + GH + 92, { size: 24 });
+  // ticks
+  g.fillStyle = '#e8eeff'; g.font = `600 17px ${FONT}`; g.textBaseline = 'middle';
+  const xt = [0,16,32,48,80,96,112,127], yt = [0,16,48,63];
+  g.textAlign = 'center';
+  for (const t of xt){ g.fillText(String(t), cx(t) + CELL/2, GY - 30); g.fillRect(cx(t) + CELL/2 - 1, GY - 21, 2, 6); }
+  if (S.cols){
+    g.font = `800 18px ${FONT}`;
+    g.fillStyle = COL.c63; g.textAlign = 'right'; g.fillText('63', cx(64) - 5, GY - 30);
+    g.fillStyle = COL.c64; g.textAlign = 'left';  g.fillText('64', cx(64) + 5, GY - 30);
+  } else { g.fillText('64', cx(64)+CELL/2, GY - 30); }
+  g.fillStyle = '#e8eeff'; g.font = `600 17px ${FONT}`; g.textAlign = 'right';
+  for (const t of yt){ g.fillText(String(t), GX - 24, cy(t) + CELL/2); }
+  if (S.rows){
+    g.font = `800 17px ${FONT}`;
+    g.fillStyle = COL.r31; g.fillText('31', GX - 24, cy(32) - 9);
+    g.fillStyle = COL.r32; g.fillText('32', GX - 24, cy(32) + 11);
+  } else { g.fillText('32', GX - 24, cy(32) + CELL/2); }
+  g.textAlign = 'left';
+
+  // corner labels with leader lines
+  const corners = [
+    ['(0, 0)',     0,   0,  96,      GY + 44],
+    ['(127, 0)',   127, 0,  BW - 96, GY + 44],
+    ['(0, 63)',    0,   63, 96,      GY + GH - 44],
+    ['(127, 63)',  127, 63, BW - 96, GY + GH - 44],
+  ];
+  for (const [t, px, py, lx, ly] of corners){
+    const tx = cx(px) + CELL/2, ty = cy(py) + CELL/2;
+    g.strokeStyle = '#ffffff'; g.lineWidth = 2; g.beginPath(); g.moveTo(lx, ly); g.lineTo(tx, ty); g.stroke();
+    g.fillStyle = '#ffe14d'; g.fillRect(cx(px), cy(py), CELL, CELL);
+    label(g, t, lx, ly, { size: 21, border: '#111' });
+  }
+
+  // halves braces (X below the screen, Y on the right)
+  if (S.halves){
+    brace(g, cx(64) - 2, GY + GH + 44, cx(0) + 1, GY + GH + 44, 22, '#9fdcff');
+    brace(g, cx(128) - 1, GY + GH + 44, cx(64) + 2, GY + GH + 44, 22, '#9fdcff');
+    label(g, '0 … 63  →  64 cột', cx(32), GY + GH + 90, { size: 19, bg: 'rgba(8,20,60,.85)', color: '#cfeeff' });
+    label(g, '64 … 127  →  64 cột', cx(96), GY + GH + 90, { size: 19, bg: 'rgba(8,20,60,.85)', color: '#cfeeff' });
+    brace(g, GX + GW + 44, cy(0) + 1, GX + GW + 44, cy(32) - 2, 20, '#9fdcff');
+    brace(g, GX + GW + 44, cy(32) + 2, GX + GW + 44, cy(64) - 1, 20, '#9fdcff');
+    label(g, '0…31', GX + GW + 102, cy(16) - 14, { size: 18, bg: 'rgba(8,20,60,.85)', color: '#cfeeff' });
+    label(g, '32 hàng', GX + GW + 102, cy(16) + 16, { size: 16, bg: null, color: '#cfeeff' });
+    label(g, '32…63', GX + GW + 102, cy(48) - 14, { size: 18, bg: 'rgba(8,20,60,.85)', color: '#cfeeff' });
+    label(g, '32 hàng', GX + GW + 102, cy(48) + 16, { size: 16, bg: null, color: '#cfeeff' });
+  }
+  // middle labels
+  if (S.cols){
+    label(g, '63', cx(64) - 22, GY + GH + 26, { size: 17, bg: COL.c63 });
+    label(g, '64', cx(64) + 22, GY + GH + 26, { size: 17, bg: COL.c64 });
+    label(g, 'Trung bình (0+127)/2 = 63,5', cx(64), GY + GH + 140, { size: 20, bg: '#ffffff', border: '#111' });
+    label(g, 'Chia nguyên 127/2 = 63 (số bé hơn)', cx(64) - 12, GY + GH + 182, { size: 18, align: 'right', bg: COL.c63 });
+    label(g, '128/2 = 64 (số lớn hơn)', cx(64) + 12, GY + GH + 182, { size: 18, align: 'left', bg: COL.c64 });
+  }
+  if (S.rows){
+    label(g, '31', GX + GW + 28, cy(32) - 15, { size: 15, bg: COL.r31, pad: 5 });
+    label(g, '32', GX + GW + 28, cy(32) + 15, { size: 15, bg: COL.r32, pad: 5 });
+    label(g, '31,5', GX + GW + 150, cy(32), { size: 18, bg: '#ffffff', border: '#111' });
+  }
+}
+
+/* ============================================================
+   4) Mini-map (flat) + hover overlay
+   ============================================================ */
+const mini = document.getElementById('mini'), gM = mini.getContext('2d');
+const MC = 3;
+function drawMini(){
+  drawPixels(gM, 0, 0, MC, 0.6, S.grid);
+  if (S.cols){ gM.fillStyle = '#fff'; gM.fillRect(64*MC - 0.5, 0, 1, H*MC); }
+  if (S.rows){ gM.fillStyle = '#fff'; gM.fillRect(0, 32*MC - 0.5, W*MC, 1); }
+  if (hover){
+    gM.strokeStyle = COL.hov; gM.lineWidth = 1.5;
+    gM.strokeRect(hover.x*MC - 0.75, hover.y*MC - 0.75, MC + 1.5, MC + 1.5);
+    gM.fillStyle = 'rgba(255,225,77,.18)'; gM.fillRect(hover.x*MC, 0, MC, H*MC); gM.fillRect(0, hover.y*MC, W*MC, MC);
+  }
+}
+function drawHover(){
+  gH.clearRect(0, 0, BW, BH);
+  if (!hover) return;
+  const x = cx(hover.x), y = cy(hover.y);
+  gH.fillStyle = 'rgba(255,225,77,.16)';
+  gH.fillRect(x, GY, CELL, GH); gH.fillRect(GX, y, GW, CELL);
+  gH.strokeStyle = COL.hov; gH.lineWidth = 2.5; gH.strokeRect(x - 1.5, y - 1.5, CELL + 3, CELL + 3);
+  gH.lineWidth = 1.5; gH.setLineDash([6, 6]);
+  gH.beginPath(); gH.moveTo(x + CELL/2, GY - 18); gH.lineTo(x + CELL/2, y); gH.moveTo(GX - 18, y + CELL/2); gH.lineTo(x, y + CELL/2); gH.stroke();
+  gH.setLineDash([]);
+}
+function redrawAll(){ drawBoard(); drawMini(); drawHover(); updateCode(); }
+
+/* ============================================================
+   5) 3D transform, sizing, homography hover
+   ============================================================ */
+const board = document.getElementById('board3d'), stage = document.getElementById('stage'), shadow = document.getElementById('shadow');
+const rx = document.getElementById('rx'), ry = document.getElementById('ry'), rz = document.getElementById('rz');
+let bw = 800, bh = bw * BH / BW;
+function layout(){
+  const r = stage.getBoundingClientRect();
+  bw = Math.min(r.width * 0.9, (r.height * 0.86) * BW / BH);
+  bh = bw * BH / BW;
+  board.style.width = bw + 'px'; board.style.height = bh + 'px';
+  board.style.marginLeft = (-bw/2) + 'px'; board.style.marginTop = (-bh/2) + 'px';
+  applyTransform();
+}
+function applyTransform(){
+  const a = flat ? 0 : +rx.value, b = flat ? 0 : +ry.value, c = flat ? 0 : +rz.value;
+  board.style.transform = `rotateX(${a}deg) rotateY(${b}deg) rotateZ(${c}deg)`;
+  shadow.style.width = (bw * (flat ? .9 : .85)) + 'px';
+  shadow.style.height = (bh * (flat ? .9 : .55)) + 'px';
+  shadow.style.marginTop = (flat ? 18 : bh * .18) + 'px';
+  document.getElementById('orx').textContent = rx.value + '°';
+  document.getElementById('ory').textContent = ry.value + '°';
+  document.getElementById('orz').textContent = rz.value + '°';
+}
+// Homography from the board's local plane (0..1, 0..1) to screen, using the projected corner markers.
+const mks = [...board.querySelectorAll('.mk')];
+function solve(A, b){            // Gaussian elimination
+  const n = b.length;
+  for (let i = 0; i < n; i++){
+    let p = i; for (let r = i+1; r < n; r++) if (Math.abs(A[r][i]) > Math.abs(A[p][i])) p = r;
+    [A[i], A[p]] = [A[p], A[i]]; [b[i], b[p]] = [b[p], b[i]];
+    for (let r = i+1; r < n; r++){ const f = A[r][i] / A[i][i]; for (let c = i; c < n; c++) A[r][c] -= f*A[i][c]; b[r] -= f*b[i]; }
+  }
+  const x = new Array(n).fill(0);
+  for (let i = n-1; i >= 0; i--){ let s = b[i]; for (let c = i+1; c < n; c++) s -= A[i][c]*x[c]; x[i] = s / A[i][i]; }
+  return x;
+}
+function screenToLocal(sx, sy){
+  // map screen -> unit square: solve homography from the 4 screen corners to (0,0),(1,0),(1,1),(0,1)
+  const src = mks.map(m => { const r = m.getBoundingClientRect(); return [r.left, r.top]; });
+  const dst = [[0,0],[1,0],[1,1],[0,1]];
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++){
+    const [x, y] = src[i], [u, v] = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u*x, -u*y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v*x, -v*y]); b.push(v);
+  }
+  const h = solve(A, b);
+  const w = h[6]*sx + h[7]*sy + 1;
+  return [(h[0]*sx + h[1]*sy + h[2]) / w, (h[3]*sx + h[4]*sy + h[5]) / w];
+}
+function pixelFromLocal(u, v){
+  const X = u * BW, Y = v * BH;
+  const px = Math.floor((X - GX) / CELL), py = Math.floor((Y - GY) / CELL);
+  return (px >= 0 && px < W && py >= 0 && py < H) ? { x: px, y: py } : null;
+}
+window.OLED.screenToPixel = (sx, sy) => { const [u, v] = screenToLocal(sx, sy); return pixelFromLocal(u, v); };
+
+const tip = document.getElementById('tip'), rdXY = document.getElementById('rdXY'), rdInfo = document.getElementById('rdInfo');
+function setHover(p, ev){
+  const same = (p && hover && p.x === hover.x && p.y === hover.y) || (!p && !hover);
+  hover = p;
+  if (!same){ drawHover(); drawMini(); }
+  if (!p){ tip.style.display = 'none'; rdXY.textContent = '(–, –)'; rdInfo.textContent = 'trên bảng 3D hoặc bản đồ phẳng'; return; }
+  const v = fb[p.y*W + p.x], on = [];
+  if (S.circle && (v & BIT_CIRCLE)) on.push('drawCircle');
+  if (S.disc && (v & BIT_DISC)) on.push('drawDisc');
+  if (S.frame && (v & BIT_FRAME)) on.push('drawFrame');
+  const half = (p.x < 64 ? 'nửa trái' : 'nửa phải') + ' · ' + (p.y < 32 ? 'nửa trên' : 'nửa dưới');
+  const sub = on.length ? 'sáng: ' + on.join(', ') : half;
+  rdXY.textContent = `(${p.x}, ${p.y})`;
+  rdInfo.innerHTML = `cột ${p.x} · hàng ${p.y}<br>${half}${on.length ? '<br>sáng bởi ' + on.join(', ') : ''}`;
+  if (ev){ tip.innerHTML = `(${p.x}, ${p.y})<small>${sub}</small>`; tip.style.display = 'block';
+    tip.style.left = (ev.clientX + 16) + 'px'; tip.style.top = (ev.clientY + 14) + 'px'; }
+}
+stage.addEventListener('mousemove', ev => { setHover(window.OLED.screenToPixel(ev.clientX, ev.clientY), ev); });
+stage.addEventListener('mouseleave', () => setHover(null));
+mini.addEventListener('mousemove', ev => {
+  const r = mini.getBoundingClientRect();
+  const x = Math.floor((ev.clientX - r.left) / r.width * W), y = Math.floor((ev.clientY - r.top) / r.height * H);
+  setHover((x >= 0 && x < W && y >= 0 && y < H) ? { x, y } : null, ev);
+});
+mini.addEventListener('mouseleave', () => setHover(null));
+
+/* ============================================================
+   6) Controls
+   ============================================================ */
+const btnFlat = document.getElementById('btnFlat');
+btnFlat.addEventListener('click', () => { flat = !flat; applyTransform(); btnFlat.textContent = flat ? 'Nghiêng 3D' : 'Phẳng'; });
+btnFlat.textContent = 'Phẳng';
+[rx, ry, rz].forEach(s => s.addEventListener('input', () => {
+  board.classList.add('notrans'); if (flat){ flat = false; btnFlat.textContent = 'Phẳng'; } applyTransform();
+}));
+[rx, ry, rz].forEach(s => s.addEventListener('change', () => board.classList.remove('notrans')));
+document.getElementById('btnReset').addEventListener('click', () => {
+  board.classList.remove('notrans'); rx.value = 38; ry.value = -20; rz.value = 6; flat = false; btnFlat.textContent = 'Phẳng'; applyTransform();
+});
+document.querySelectorAll('button.tg').forEach(b => b.addEventListener('click', () => {
+  const k = b.dataset.k; S[k] = !S[k]; b.classList.toggle('on', S[k]); redrawAll();
+  if (hover) setHover(hover);
+}));
+function updateCode(){
+  const ln = (on, txt, cm) => `<span class="${on ? '' : 'off'}">${txt}</span> <span class="cm">// ${cm}</span>`;
+  document.getElementById('code').innerHTML = [
+    'u8g2.firstPage();', 'do {',
+    '  ' + ln(S.circle, 'u8g2.drawCircle(32, 32, 25);', `${COUNT.circle} điểm`),
+    '  ' + ln(S.disc,   'u8g2.drawDisc(95, 32, 25);',   `${COUNT.disc} điểm`),
+    '  ' + ln(S.frame,  'u8g2.drawFrame(0, 0, 128, 64);', `${COUNT.frame} điểm`),
+    '} while (u8g2.nextPage());'
+  ].join('\n');
+}
+window.OLED.setFlat = f => { flat = !!f; applyTransform(); btnFlat.textContent = flat ? 'Nghiêng 3D' : 'Phẳng'; };
+window.OLED.setToggle = (k, v) => { S[k] = !!v; document.querySelector(`button.tg[data-k="${k}"]`).classList.toggle('on', S[k]); redrawAll(); };
+
+window.addEventListener('resize', layout);
+redrawAll(); layout();
+</script>
+</body>
+</html>
